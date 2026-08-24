@@ -1,0 +1,19 @@
+# 用户要求不上传的本地目录
+/tools/
+/test_game/
+
+# 依赖与构建产物
+**/node_modules/
+**/dist/
+**/.sea/
+**/coverage/
+
+# 本地验证产物
+**/verification/
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
