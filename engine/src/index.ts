@@ -3,3 +3,4 @@ export * from "./character";
 export * from "./package";
 export * from "./scene";
 export * from "./tui";
+export * from "./filesystem";
