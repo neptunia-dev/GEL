@@ -51,6 +51,7 @@ class DebugApi extends LuaApi {
 ```ts
 const runtime = new LuaRuntime();
 runtime.run(source, handler, {
+  state: gameState,
   apiFactories: [(host) => new DebugApi(host)]
 });
 ```
@@ -118,17 +119,29 @@ local answer = ctx.dialogue:choice({
 
 ### `ctx.state`
 
-剧情变量只接受可序列化值：`nil`、布尔值、有限数字、字符串、数组和
-对象表。建议使用带领域前缀的键名：
+游戏级变量系统，所有变量必须在创建 `GameState` 时预声明并提供 schema 和默认值。
+变量通过 `VariableStore` 管理，支持递归 schema 校验和封闭对象。
 
 ```lua
 ctx.state:set("route.alice.seen", true)
 ctx.state:add("affection.alice", 1)
-local score = ctx.state:get("score", 0)
+local score = ctx.state:get("score")
 if ctx.state:has("flags.intro") then
-  ctx.state:remove("flags.intro")
+  ctx.state:reset("flags.intro")
 end
 ```
+
+可用方法：
+- `get(key)` - 读取变量值（深复制）
+- `set(key, value)` - 写入变量值（校验 + 深复制）
+- `add(key, amount)` - 数字变量累加，返回新值
+- `has(key)` - 检查变量是否存在（预声明变量总是返回 true）
+- `reset(key)` - 重置为默认值
+
+不再提供 `remove` 方法：每个变量始终有默认值，不存在"删除变量"的有效语义。
+
+变量值类型：`nil`、布尔值、有限数字、字符串、数组和对象表。对象必须包含
+schema 声明的所有字段，不允许额外字段。数组与对象在读写时深复制。
 
 ### `ctx.time`
 
@@ -148,6 +161,21 @@ return ctx.flow:exit("accept")
 return ctx.flow:end_story()
 ```
 
+## 运行时配置
+
+`LuaRuntime.run` 的 `LuaRunOptions` 必需参数：
+
+- `state: GameState` - 游戏状态，持有 packageId、schemaVersion、sceneId 和变量定义
+
+可选参数：
+
+- `characterIds?: string[]` - 场景角色表，用于校验 `ctx.stage` 调用
+- `exits?: string[]` - 场景出口表，用于校验 `ctx.flow` 调用
+- `onPresentation?: (event) => void` - 接收非阻塞表现命令（舞台变化）
+- `apiFactories?: LuaApiFactory[]` - 开发期扩展 API
+
+同一个 `GameState` 可被多个场景运行共享，变量在场景间自动传递。
+
 ## 宿主协议
 
 `stage` 方法产生非阻塞的 `LuaPresentationCommand`，由宿主通过
@@ -155,10 +183,12 @@ return ctx.flow:end_story()
 由 `LuaRuntime.run` 的 handler 回复：
 
 ```ts
+const runtime = new LuaRuntime();
 const result = await runtime.run(source, async (request) => {
   // TUI 或图形渲染器处理 request
   return request.type === "choice" ? selectedOptionId : undefined;
 }, {
+  state: gameState,
   characterIds: ["alice", "bob"],
   exits: ["accept", "decline"],
   onPresentation: (event) => presentation.apply(event.command)
@@ -167,6 +197,83 @@ const result = await runtime.run(source, async (request) => {
 
 对话和等待请求只能收到 `undefined` 或 `null`；选项请求必须收到当前
 启用选项的字符串 ID。runtime 会在恢复 Lua 前校验回复。
+
+## RuntimePackage 元数据
+
+`RuntimePackage` 接口定义游戏包的完整运行时描述：
+
+```ts
+interface RuntimePackage {
+  packageId: string;          // 稳定包标识符
+  schemaVersion: number;      // 变量 schema 版本号
+  variables: VariableDefinition[]; // 变量声明数组
+  entryScene: string;         // 入口场景 ID
+  scenes: SceneDefinition[];  // 场景定义数组
+  routes: Record<string, Record<string, string>>; // 场景路由表
+}
+```
+
+变量定义由 `RuntimePackage` 传入 `GameState` 构造函数，确保游戏包的
+变量声明、版本号与运行时状态一致。
+
+## 存档与恢复
+
+使用 `SqliteSaveStore` 存储完整游戏状态到 SQLite 数据库：
+
+```ts
+import { SqliteSaveStore } from "gel-engine/saves";
+
+const store = new SqliteSaveStore("./saves.db");
+store.saveAuto(gameState); // 替换自动存档槽位
+const slot = store.createManual(gameState, "第二章开始"); // 创建手动槽位
+const slots = store.list(); // 列出所有槽位
+store.load(slot.id, gameState); // 加载槽位到 gameState
+store.delete(slot.id); // 删除槽位
+store.close(); // 关闭数据库连接
+```
+
+方法说明：
+
+- `saveAuto(state)` - 保存或替换自动存档槽位（id 为 `auto`），返回 `SaveSlot`
+- `createManual(state, label?)` - 创建新手动存档，返回包含 UUID 的 `SaveSlot`
+- `overwriteManual(id, state, label?)` - 覆盖现有手动存档，返回 `SaveSlot`
+- `load(id, state)` - 验证槽位的 packageId、schemaVersion、sceneId 与目标 state 匹配，通过后恢复变量快照到 state，返回 `SaveSlot`
+- `list()` - 返回所有槽位元数据（按 updatedAt 降序）
+- `delete(id)` - 删除指定槽位
+- `close()` - 关闭 SQLite 连接
+
+存档内容：
+
+- 元数据：packageId、schemaVersion、sceneId、label、createdAt、updatedAt
+- 变量快照：所有声明变量的完整树形值（规范化存储在 save_value_nodes 表）
+
+加载行为：
+
+- `load(id, state)` 验证槽位的 packageId、schemaVersion、sceneId 必须与目标 state 当前值匹配
+- 验证通过后调用 `state.restore(snapshot)` 恢复所有变量值
+- **不修改** `state.sceneId`：调用方需在加载前将 state.sceneId 设置为槽位记录的场景 ID
+- **不恢复**：Lua 协程状态、局部变量、TUI 渲染帧、回滚历史
+
+场景切换协调：
+
+- 存档前：确保 `state.sceneId` 已设置为当前场景 ID
+- 加载后：读取返回的 `SaveSlot.sceneId`，调度场景执行器从该场景重新开始
+- 场景调度由调用方实现（SceneRunner 仅为接口占位，未实现）
+
+存档校验：
+
+- packageId 必须匹配
+- schemaVersion 必须匹配
+- sceneId 必须匹配
+- 所有变量值必须通过 schema 校验
+- 损坏数据或版本不匹配直接拒绝，不提供迁移或宽松恢复
+
+存储实现：
+
+- 使用 Node.js >= 22.5.0 `node:sqlite` DatabaseSync 同步 API
+- 规范化关系存储：save_slots + save_value_nodes 表
+- 事务写入保证原子性（BEGIN IMMEDIATE / COMMIT / ROLLBACK）
+- 外键级联删除保证引用完整性
 
 ## 沙箱
 
