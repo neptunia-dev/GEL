@@ -138,7 +138,9 @@ export function cloneVariableSchema(schema: VariableSchema): VariableSchema {
         type: "string",
         ...(schema.minLength === undefined ? {} : { minLength: schema.minLength }),
         ...(schema.maxLength === undefined ? {} : { maxLength: schema.maxLength }),
-        ...(schema.pattern === undefined ? {} : { pattern: clonePattern(schema.pattern) }),
+        ...(schema.pattern === undefined
+          ? {}
+          : { pattern: typeof schema.pattern === "string" ? schema.pattern : clonePattern(schema.pattern) }),
         ...(schema.enum === undefined ? {} : { enum: [...schema.enum] }),
       };
     case "array":

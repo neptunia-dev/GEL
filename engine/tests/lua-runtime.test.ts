@@ -114,7 +114,7 @@ describe("LuaRuntime", () => {
         if io ~= nil or os ~= nil or package ~= nil or debug ~= nil then
           error("unsafe library exposed")
         end
-          return ctx.flow:exit(math.floor(3.9) == 3 and "sandboxed" or "broken")
+        return ctx.flow:exit(math.floor(3.9) == 3 and "sandboxed" or "broken")
       end`,
       () => undefined,
       { state: createTestState() },
@@ -309,5 +309,63 @@ describe("LuaRuntime", () => {
         { state: createTestState(), sourceName: "debug.lua", apiFactories: [(host) => new DebugApi(host)] },
       ),
     ).rejects.toThrow(/ctx\.debug\.fail: 开发 API 参数错误 \[E_ARGUMENT\]/);
+  });
+
+  it("shares one GameState across runs and exposes reset without remove", async () => {
+    const runtime = new LuaRuntime();
+    const state = createTestState();
+
+    await runtime.run(
+      `return function(ctx)
+        ctx.state:set("flag.seen", true)
+        ctx.state:add("score", 2)
+        assert(ctx.state:has("flag.seen"))
+        return ctx.flow:end_story()
+      end`,
+      () => undefined,
+      { state },
+    );
+    expect(state.variables.get("flag.seen")).toBe(true);
+    expect(state.variables.get("score")).toBe(2);
+
+    await runtime.run(
+      `return function(ctx)
+        assert(ctx.state:get("score") == 2)
+        ctx.state:reset("flag.seen")
+        assert(ctx.state:get("flag.seen") == false)
+        return ctx.flow:end_story()
+      end`,
+      () => undefined,
+      { state },
+    );
+    expect(state.variables.get("flag.seen")).toBe(false);
+
+    await expect(
+      runtime.run(
+        `return function(ctx)
+          ctx.state:remove("flag.seen")
+          return ctx.flow:end_story()
+        end`,
+        () => undefined,
+        { state },
+      ),
+    ).rejects.toThrow(/remove|nil value/);
+  });
+
+  it("rejects Lua writes that violate the declared variable schema", async () => {
+    const runtime = new LuaRuntime();
+    const state = createTestState();
+
+    await expect(
+      runtime.run(
+        `return function(ctx)
+          ctx.state:set("score", "not a number")
+          return ctx.flow:end_story()
+        end`,
+        () => undefined,
+        { state },
+      ),
+    ).rejects.toThrow(/number/);
+    expect(state.variables.get("score")).toBe(0);
   });
 });
