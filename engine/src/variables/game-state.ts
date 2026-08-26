@@ -50,7 +50,7 @@ function validateStateIdentifier(value: unknown, name: string): asserts value is
 }
 
 function validateSchemaVersion(value: unknown): asserts value is number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new TypeError("schemaVersion must be a non-negative integer");
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError("schemaVersion must be a non-negative safe integer");
   }
 }

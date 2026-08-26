@@ -189,6 +189,22 @@ describe("SqliteSaveStore schema and slot behavior", () => {
     expect(target.variables.get("score")).toBe(77);
   });
 
+  it("rejects corrupted automatic and reserved manual slot identities", () => {
+    const store = openStore();
+    const auto = store.saveAuto(makeState());
+    const database = databaseFor(store);
+
+    database.prepare("UPDATE save_slots SET kind = 'manual' WHERE id = ?").run(auto.id);
+    expect(() => store.list()).toThrow(/reserved auto slot invariant/);
+    expect(() => store.load(auto.id, makeState())).toThrow(/reserved auto slot invariant/);
+
+    database.prepare("UPDATE save_slots SET kind = 'auto' WHERE id = ?").run(auto.id);
+    const manual = store.createManual(makeState(), "manual");
+    database.prepare("DELETE FROM save_slots WHERE id = ?").run(auto.id);
+    database.prepare("UPDATE save_slots SET kind = 'auto' WHERE id = ?").run(manual.id);
+    expect(() => store.list()).toThrow(/reserved auto slot invariant/);
+  });
+
   it("deletes a slot and cascades all normalized value nodes", () => {
     const store = openStore();
     const slot = store.createManual(makeState(), "to delete");

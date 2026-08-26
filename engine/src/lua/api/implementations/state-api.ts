@@ -29,7 +29,11 @@ export class StateApi extends LuaApi {
     if (lua.lua_gettop(state) < 3) {
       throw new TypeError("set requires a value");
     }
-    this.host.variables.set(key, readLuaValue(state, 3));
+    const definition = this.host.variables.getDefinition(key);
+    if (definition === undefined) {
+      throw new TypeError(`Unknown variable '${key}'`);
+    }
+    this.host.variables.set(key, readLuaValue(state, 3, 0, definition.schema));
     return 0;
   }
 

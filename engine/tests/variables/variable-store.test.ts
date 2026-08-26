@@ -3,6 +3,7 @@ import {
   GameState,
   VariableStore,
   type VariableDefinition,
+  type VariableSchema,
   type VariableValue,
 } from "../../src/variables";
 
@@ -109,6 +110,47 @@ describe("VariableStore", () => {
           },
         ]),
     ).toThrow(/min/);
+  });
+
+  it("rejects sparse arrays and protects closed object boundaries", () => {
+    const sparse: unknown[] = [];
+    sparse.length = 1;
+    expect(() =>
+      new VariableStore([
+        { key: "sparse", schema: { type: "array", items: { type: "boolean" } }, defaultValue: sparse as VariableValue[] },
+      ]),
+    ).toThrow(/sparse holes/);
+
+    const hidden = profileValue();
+    Object.defineProperty(hidden, "hidden", { value: true, enumerable: false });
+    expect(() => createStore().set("profile", hidden)).toThrow(/non-enumerable/);
+
+    const symbol = Symbol("hidden");
+    const symbolValue = profileValue();
+    Object.defineProperty(symbolValue, symbol, { value: true, enumerable: true });
+    expect(() => createStore().set("profile", symbolValue)).toThrow(/symbol/);
+
+    const protoProperties: Record<string, VariableSchema> = {};
+    Object.defineProperty(protoProperties, "__proto__", {
+      configurable: true,
+      enumerable: true,
+      value: { type: "string" },
+      writable: true,
+    });
+    const protoValue: Record<string, VariableValue> = {};
+    Object.defineProperty(protoValue, "__proto__", {
+      configurable: true,
+      enumerable: true,
+      value: "safe",
+      writable: true,
+    });
+    const protoStore = new VariableStore([
+      { key: "proto.value", schema: { type: "object", properties: protoProperties }, defaultValue: protoValue },
+    ]);
+    const cloned = protoStore.get("proto.value") as Record<string, VariableValue>;
+    expect(Object.prototype.hasOwnProperty.call(cloned, "__proto__")).toBe(true);
+    expect(cloned["__proto__"]).toBe("safe");
+    expect(Object.getPrototypeOf(cloned)).toBe(Object.prototype);
   });
 
   it("validates closed objects, recursive arrays, and scalar constraints", () => {
@@ -252,6 +294,12 @@ describe("GameState", () => {
 
     state.sceneId = "chapter-two";
     expect(state.sceneId).toBe("chapter-two");
+    expect(() => new GameState({
+      packageId: "example.story",
+      schemaVersion: Number.MAX_SAFE_INTEGER + 1,
+      sceneId: "prologue",
+      variables: [],
+    })).toThrow(/safe integer/);
     expect(() => {
       state.sceneId = " ";
     }).toThrow(/sceneId/);

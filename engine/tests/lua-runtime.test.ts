@@ -41,6 +41,8 @@ function createTestState(score = 0): GameState {
       { key: "last.answer", schema: { type: "string" }, defaultValue: "" },
       { key: "score", schema: { type: "number" }, defaultValue: 0 },
       { key: "seen.value", schema: { type: "number" }, defaultValue: 0 },
+      { key: "empty.list", schema: { type: "array", items: { type: "number" } }, defaultValue: [] },
+      { key: "nested.list", schema: { type: "array", items: { type: "array", items: { type: "number" } } }, defaultValue: [] },
     ],
   });
   if (score !== 0) {
@@ -350,6 +352,24 @@ describe("LuaRuntime", () => {
         { state },
       ),
     ).rejects.toThrow(/remove|nil value/);
+  });
+
+  it("decodes empty and nested Lua tables using the declared array schema", async () => {
+    const runtime = new LuaRuntime();
+    const state = createTestState();
+
+    await runtime.run(
+      `return function(ctx)
+        ctx.state:set("empty.list", {})
+        ctx.state:set("nested.list", {{}, { 1, 2 }})
+        return ctx.flow:end_story()
+      end`,
+      () => undefined,
+      { state },
+    );
+
+    expect(state.variables.get("empty.list")).toEqual([]);
+    expect(state.variables.get("nested.list")).toEqual([[], [1, 2]]);
   });
 
   it("rejects Lua writes that violate the declared variable schema", async () => {

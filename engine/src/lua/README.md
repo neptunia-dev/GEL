@@ -221,7 +221,7 @@ interface RuntimePackage {
 使用 `SqliteSaveStore` 存储完整游戏状态到 SQLite 数据库：
 
 ```ts
-import { SqliteSaveStore } from "gel-engine/saves";
+import { SqliteSaveStore } from "@gel/engine";
 
 const store = new SqliteSaveStore("./saves.db");
 store.saveAuto(gameState); // 替换自动存档槽位

@@ -361,6 +361,9 @@ function parseSlotRow(row: SaveSlotRow): SaveSlot {
   if (kind !== "auto" && kind !== "manual") {
     throw new Error(`Save slot '${id}' has an invalid kind`);
   }
+  if ((kind === "auto") !== (id === "auto")) {
+    throw new Error(`Save slot '${id}' violates the reserved auto slot invariant`);
+  }
   const label = row.label === null ? null : requiredString(row.label, `save slot '${id}' label`);
   const packageId = requiredString(row.package_id, `save slot '${id}' package id`);
   const schemaVersion = requiredInteger(row.schema_version, `save slot '${id}' schema version`);

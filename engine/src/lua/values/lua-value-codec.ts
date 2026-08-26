@@ -1,4 +1,5 @@
 import { lua, to_jsstring, to_luastring } from "fengari";
+import type { VariableSchema } from "../../variables";
 import type { LuaValue } from "./lua-types";
 
 type LuaState = any;
@@ -64,7 +65,7 @@ function pushLuaValueAtDepth(state: LuaState, value: LuaValue, depth: number): v
   }
 }
 
-export function readLuaValue(state: LuaState, index: number, depth = 0): LuaValue {
+export function readLuaValue(state: LuaState, index: number, depth = 0, schema?: VariableSchema): LuaValue {
   if (depth > MAX_CODEC_DEPTH) {
     throw codecError("table nesting is too deep");
   }
@@ -87,13 +88,13 @@ export function readLuaValue(state: LuaState, index: number, depth = 0): LuaValu
       return typeof value === "string" ? value : to_jsstring(lua.lua_tolstring(state, index));
     }
     case lua.LUA_TTABLE:
-      return readTable(state, index, depth + 1);
+      return readTable(state, index, depth + 1, schema);
     default:
       throw codecError(`unsupported Lua value type ${String(type)}`);
   }
 }
 
-function readTable(state: LuaState, index: number, depth: number): LuaValue {
+function readTable(state: LuaState, index: number, depth: number, schema?: VariableSchema): LuaValue {
   const absoluteIndex = lua.lua_absindex(state, index);
   const entries = new Map<string, LuaValue>();
   let onlyContiguousIntegers = true;
@@ -106,6 +107,9 @@ function readTable(state: LuaState, index: number, depth: number): LuaValue {
     if (keyType === lua.LUA_TSTRING) {
       key = String(lua.lua_tojsstring(state, -2));
       onlyContiguousIntegers = false;
+      if (schema?.type === "array") {
+        throw codecError("array table keys must be positive contiguous integers");
+      }
     } else if (keyType === lua.LUA_TNUMBER && lua.lua_isinteger(state, -2)) {
       const integerKey = Number(lua.lua_tointeger(state, -2));
       key = String(integerKey);
@@ -113,12 +117,48 @@ function readTable(state: LuaState, index: number, depth: number): LuaValue {
       if (integerKey < 1) {
         onlyContiguousIntegers = false;
       }
+      if (schema?.type === "object") {
+        throw codecError("object table keys must be strings");
+      }
     } else {
       throw codecError("table keys must be strings or positive integers");
     }
 
-    entries.set(key, readLuaValue(state, -1, depth));
+    const childSchema = schema?.type === "array"
+      ? schema.items
+      : schema?.type === "object" && Object.prototype.hasOwnProperty.call(schema.properties, key)
+        ? schema.properties[key]
+        : undefined;
+    entries.set(key, readLuaValue(state, -1, depth, childSchema));
     lua.lua_pop(state, 1);
+  }
+
+  if (schema?.type === "array") {
+    if (!onlyContiguousIntegers) {
+      throw codecError("array table keys must be positive contiguous integers");
+    }
+    const result: LuaValue[] = [];
+    for (let indexValue = 1; indexValue <= largestInteger; indexValue += 1) {
+      const key = String(indexValue);
+      if (!entries.has(key)) {
+        throw codecError("array table keys must be positive contiguous integers");
+      }
+      result.push(entries.get(key) as LuaValue);
+    }
+    return result;
+  }
+
+  if (schema?.type === "object") {
+    const result: { [key: string]: LuaValue } = {};
+    for (const [key, value] of entries) {
+      Object.defineProperty(result, key, {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      });
+    }
+    return result;
   }
 
   if (onlyContiguousIntegers && largestInteger > 0) {
@@ -138,7 +178,12 @@ function readTable(state: LuaState, index: number, depth: number): LuaValue {
 
   const result: { [key: string]: LuaValue } = {};
   for (const [key, value] of entries) {
-    result[key] = value;
+    Object.defineProperty(result, key, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
   }
   return result;
 }

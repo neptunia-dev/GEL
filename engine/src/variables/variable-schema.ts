@@ -116,7 +116,12 @@ export function cloneVariableValue(value: VariableValue): VariableValue {
   }
   const clone: { [key: string]: VariableValue } = {};
   for (const [key, item] of Object.entries(value)) {
-    clone[key] = cloneVariableValue(item);
+    Object.defineProperty(clone, key, {
+      configurable: true,
+      enumerable: true,
+      value: cloneVariableValue(item),
+      writable: true,
+    });
   }
   return clone;
 }
@@ -153,7 +158,12 @@ export function cloneVariableSchema(schema: VariableSchema): VariableSchema {
     case "object": {
       const properties: Record<string, VariableSchema> = {};
       for (const [key, propertySchema] of Object.entries(schema.properties)) {
-        properties[key] = cloneVariableSchema(propertySchema);
+        Object.defineProperty(properties, key, {
+          configurable: true,
+          enumerable: true,
+          value: cloneVariableSchema(propertySchema),
+          writable: true,
+        });
       }
       return { type: "object", properties };
     }
@@ -226,6 +236,14 @@ function validateSchema(schema: VariableSchema, path: string, ancestors: Set<obj
         if (schema.properties === null || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
           throw new TypeError(`${path}.properties must be an object`);
         }
+        if (Object.getOwnPropertySymbols(schema.properties).length > 0) {
+          throw new TypeError(`${path}.properties must not contain symbol keys`);
+        }
+        for (const key of Object.getOwnPropertyNames(schema.properties)) {
+          if (!Object.prototype.propertyIsEnumerable.call(schema.properties, key)) {
+            throw new TypeError(`${path}.properties must not contain non-enumerable keys`);
+          }
+        }
         for (const [key, propertySchema] of Object.entries(schema.properties)) {
           validateSchema(propertySchema, `${path}.properties.${key}`, ancestors);
         }
@@ -281,7 +299,12 @@ function validateArray(value: unknown, schema: ArrayVariableSchema, path: string
   if (schema.maxLength !== undefined && value.length > schema.maxLength) {
     throw new RangeError(`${path} must contain at most ${schema.maxLength} items`);
   }
-  value.forEach((item, index) => validateVariableValue(item, schema.items, `${path}[${index}]`));
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) {
+      throw new TypeError(`${path} must not contain sparse holes`);
+    }
+    validateVariableValue(value[index], schema.items, `${path}[${index}]`);
+  }
 }
 
 function validateObject(value: unknown, schema: ObjectVariableSchema, path: string): asserts value is { [key: string]: VariableValue } {
@@ -290,6 +313,11 @@ function validateObject(value: unknown, schema: ObjectVariableSchema, path: stri
   }
   if (Object.getOwnPropertySymbols(value).length > 0) {
     throw new TypeError(`${path} must not contain symbol keys`);
+  }
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (!Object.prototype.propertyIsEnumerable.call(value, key)) {
+      throw new TypeError(`${path} must not contain non-enumerable keys`);
+    }
   }
   const valueKeys = Object.keys(value);
   const schemaKeys = Object.keys(schema.properties);
