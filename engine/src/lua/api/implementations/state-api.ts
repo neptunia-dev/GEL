@@ -15,21 +15,12 @@ export class StateApi extends LuaApi {
     this.expose("set", "sync", this.set);
     this.expose("add", "sync", this.add);
     this.expose("has", "sync", this.has);
-    this.expose("remove", "sync", this.remove);
+    this.expose("reset", "sync", this.reset);
   }
 
   private get(state: LuaState): number {
     const key = readStateKey(state);
-    const value = this.host.variables.get(key);
-    if (value === undefined) {
-      if (lua.lua_gettop(state) >= 3) {
-        lua.lua_pushvalue(state, 3);
-      } else {
-        lua.lua_pushnil(state);
-      }
-    } else {
-      pushLuaValue(state, value);
-    }
+    pushLuaValue(state, this.host.variables.get(key));
     return 1;
   }
 
@@ -48,15 +39,7 @@ export class StateApi extends LuaApi {
       throw new TypeError("amount must be a finite number");
     }
     const amount = Number(lua.lua_tonumber(state, 3));
-    if (!Number.isFinite(amount)) {
-      throw new TypeError("amount must be a finite number");
-    }
-    const current = this.host.variables.get(key);
-    if (current !== undefined && typeof current !== "number") {
-      throw new TypeError(`variable '${key}' is not a number`);
-    }
-    const next = (current ?? 0) + amount;
-    this.host.variables.set(key, next);
+    const next = this.host.variables.add(key, amount);
     lua.lua_pushnumber(state, next);
     return 1;
   }
@@ -66,8 +49,8 @@ export class StateApi extends LuaApi {
     return 1;
   }
 
-  private remove(state: LuaState): number {
-    this.host.variables.delete(readStateKey(state));
+  private reset(state: LuaState): number {
+    this.host.variables.reset(readStateKey(state));
     return 0;
   }
 }

@@ -7,9 +7,6 @@ import type { LuaRequest, LuaResult } from "../protocol/lua-request";
 import type { LuaResumeValue } from "../protocol/lua-response";
 import { parseLuaRequest, parseLuaResult } from "../protocol/validators";
 import { pushLuaValue, readLuaValue } from "../values/lua-value-codec";
-import type { LuaValue } from "../values/lua-types";
-
-type LuaState = any;
 
 export type LuaStep =
   | { kind: "request"; request: LuaRequest }
@@ -21,8 +18,8 @@ export class LuaCoroutine {
   private pendingRequest: LuaRequest | null = null;
 
   public constructor(
-    private readonly mainState: LuaState,
-    private readonly coroutineState: LuaState,
+    private readonly mainState: any,
+    private readonly coroutineState: any,
     private readonly sourceName: string,
     private readonly host: LuaBindingHost,
     private readonly apiRegistry: LuaApiRegistry,
@@ -70,14 +67,6 @@ export class LuaCoroutine {
     }
     this.status = "closed";
     this.closeVm();
-  }
-
-  public getVariables(): ReadonlyMap<string, LuaValue> {
-    return this.host.variables;
-  }
-
-  public getVariableSnapshot(): Record<string, LuaValue> {
-    return Object.fromEntries(this.host.variables.entries());
   }
 
   private resumeNative(argumentCount: number): LuaStep {

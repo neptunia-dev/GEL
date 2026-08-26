@@ -7,6 +7,8 @@ import {
   type LuaRequest,
   type LuaState,
 } from "../src/lua";
+import { GameState } from "../src/variables";
+
 class DebugApi extends LuaApi {
   public readonly namespace = "debug";
   public readonly capability = "debug";
@@ -27,6 +29,26 @@ class DebugApi extends LuaApi {
   }
 }
 
+function createTestState(score = 0): GameState {
+  const state = new GameState({
+    packageId: "test.package",
+    schemaVersion: 1,
+    sceneId: "test.scene",
+    variables: [
+      { key: "alice.affection", schema: { type: "number" }, defaultValue: 0 },
+      { key: "debug.marked", schema: { type: "boolean" }, defaultValue: false },
+      { key: "flag.seen", schema: { type: "boolean" }, defaultValue: false },
+      { key: "last.answer", schema: { type: "string" }, defaultValue: "" },
+      { key: "score", schema: { type: "number" }, defaultValue: 0 },
+      { key: "seen.value", schema: { type: "number" }, defaultValue: 0 },
+    ],
+  });
+  if (score !== 0) {
+    state.variables.set("score", score);
+  }
+  return state;
+}
+
 const script = `
 return function(ctx)
   ctx.dialogue:say("alice", "今天一起回家吗？")
@@ -44,7 +66,7 @@ describe("LuaRuntime", () => {
   it("pauses on dialogue and choice, then returns a scene port", async () => {
     const requests: LuaRequest[] = [];
     const runtime = new LuaRuntime();
-    const variables: Record<string, any> = {};
+    const state = createTestState();
 
     const result = await runtime.run(
       script,
@@ -52,7 +74,7 @@ describe("LuaRuntime", () => {
         requests.push(request);
         return request.type === "choice" ? "accept" : undefined;
       },
-      { sourceName: "prologue.lua", variables },
+      { sourceName: "prologue.lua", state },
     );
 
     expect(result).toEqual({ type: "exit", port: "accept" });
@@ -70,18 +92,19 @@ describe("LuaRuntime", () => {
 
   it("supports state reads and writes", async () => {
     const runtime = new LuaRuntime();
-    const variables = { score: 4 };
+    const state = createTestState(4);
     const result = await runtime.run(
       `return function(ctx)
-        ctx.state:set("seen", ctx.state:get("score", 0) + 1)
+        ctx.state:set("seen.value", ctx.state:get("score") + 1)
         return ctx.flow:end_story()
       end`,
       () => undefined,
-      { variables },
+      { state },
     );
 
     expect(result).toEqual({ type: "end" });
-    expect(variables).toEqual({ score: 4, seen: 5 });
+    expect(state.variables.get("score")).toBe(4);
+    expect(state.variables.get("seen.value")).toBe(5);
   });
 
   it("keeps unsafe standard libraries out of the story sandbox", async () => {
@@ -94,6 +117,7 @@ describe("LuaRuntime", () => {
           return ctx.flow:exit(math.floor(3.9) == 3 and "sandboxed" or "broken")
       end`,
       () => undefined,
+      { state: createTestState() },
     );
 
     expect(result).toEqual({ type: "exit", port: "sandboxed" });
@@ -106,7 +130,7 @@ describe("LuaRuntime", () => {
         `return function(ctx)
           while true do end
         end`,
-        { sourceName: "loop.lua", sandbox: { instructionLimit: 1000 } },
+        { state: createTestState(), sourceName: "loop.lua", sandbox: { instructionLimit: 1000 } },
       ).start(),
     ).toThrow(/instruction limit exceeded/);
   });
@@ -124,16 +148,16 @@ describe("LuaRuntime", () => {
           controller.abort();
           return undefined;
         },
-        { signal: controller.signal },
+        { state: createTestState(), signal: controller.signal },
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("reports Lua errors with the source name", () => {
     const runtime = new LuaRuntime();
-    expect(() => runtime.create(`return function(ctx) error("broken") end`, { sourceName: "broken.lua" }).start()).toThrow(
-      /broken\.lua/,
-    );
+    expect(() =>
+      runtime.create(`return function(ctx) error("broken") end`, { state: createTestState(), sourceName: "broken.lua" }).start(),
+    ).toThrow(/broken\.lua/);
   });
 
   it("supports namespaced dialogue, stage, state, time and flow APIs", async () => {
@@ -150,7 +174,7 @@ describe("LuaRuntime", () => {
         ctx.dialogue:narrate("走廊安静下来。")
         ctx.dialogue:offscreen("bob", "我在这里。")
         ctx.time:wait(0.25)
-        ctx.state:set("seen", true)
+        ctx.state:set("flag.seen", true)
         return ctx.flow:exit("done")
       end`,
       async (request) => {
@@ -158,6 +182,7 @@ describe("LuaRuntime", () => {
         return undefined;
       },
       {
+        state: createTestState(),
         characterIds: ["alice", "bob"],
         exits: ["done"],
         onPresentation: (event) => commands.push(event.command),
@@ -187,6 +212,7 @@ describe("LuaRuntime", () => {
           return ctx.flow:end_story()
         end`,
         () => "missing",
+        { state: createTestState() },
       ),
     ).rejects.toThrow(/Unknown or disabled choice option/);
   });
@@ -206,6 +232,7 @@ describe("LuaRuntime", () => {
         requests.push(request);
         return "yes";
       },
+      { state: createTestState() },
     );
     expect(requests[0]).toMatchObject({
       type: "choice",
@@ -225,6 +252,7 @@ describe("LuaRuntime", () => {
           return ctx.flow:end_story()
         end`,
         () => "same",
+        { state: createTestState() },
       ),
     ).rejects.toThrow(/duplicate choice option id/);
   });
@@ -238,7 +266,7 @@ describe("LuaRuntime", () => {
           return ctx.flow:exit("unknown")
         end`,
         () => undefined,
-        { characterIds: ["alice"], exits: ["done"] },
+        { state: createTestState(), characterIds: ["alice"], exits: ["done"] },
       ),
     ).rejects.toThrow(/not declared in this scene/);
 
@@ -248,25 +276,25 @@ describe("LuaRuntime", () => {
           return ctx.flow:exit("unknown")
         end`,
         () => undefined,
-        { exits: ["done"] },
+        { state: createTestState(), exits: ["done"] },
       ),
     ).rejects.toThrow(/does not declare exit port/);
   });
 
   it("allows a development API to self-register through one factory", async () => {
     const runtime = new LuaRuntime();
-    const variables: Record<string, any> = {};
+    const state = createTestState();
     const result = await runtime.run(
       `return function(ctx)
         ctx.debug:mark()
         return ctx.flow:end_story()
       end`,
       () => undefined,
-      { variables, apiFactories: [(host) => new DebugApi(host)] },
+      { state, apiFactories: [(host) => new DebugApi(host)] },
     );
 
     expect(result).toEqual({ type: "end" });
-    expect(variables["debug.marked"]).toBe(true);
+    expect(state.variables.get("debug.marked")).toBe(true);
   });
 
   it("formats development API errors with a stable context path", async () => {
@@ -278,7 +306,7 @@ describe("LuaRuntime", () => {
           return ctx.flow:end_story()
         end`,
         () => undefined,
-        { sourceName: "debug.lua", apiFactories: [(host) => new DebugApi(host)] },
+        { state: createTestState(), sourceName: "debug.lua", apiFactories: [(host) => new DebugApi(host)] },
       ),
     ).rejects.toThrow(/ctx\.debug\.fail: 开发 API 参数错误 \[E_ARGUMENT\]/);
   });
