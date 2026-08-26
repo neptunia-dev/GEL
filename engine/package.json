@@ -4,6 +4,9 @@
   "private": true,
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
