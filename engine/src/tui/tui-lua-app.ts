@@ -7,6 +7,7 @@ import {
   type LuaResumeValue,
   type LuaResult,
 } from "../lua";
+import { GameState, type VariableDefinition } from "../variables";
 import { BlessedRenderer } from "./blessed-renderer";
 import { TuiSession } from "./tui-session";
 
@@ -15,6 +16,8 @@ export interface TuiLuaAppOptions {
   output?: Writable;
   title?: string;
   sceneId?: string;
+  /** 可选的共享游戏状态；未提供时使用无变量的开发状态。 */
+  state?: GameState;
   /** 内嵌 Lua 源码；提供后不读取 luaPath 文件。 */
   source?: string;
   /** Lua runtime 使用的源名称；默认使用 luaPath 的绝对路径。 */
@@ -40,6 +43,7 @@ export class TuiLuaApp {
 
   private readonly sourcePath: string;
   private readonly source: string;
+  private readonly state: GameState;
   private readonly runtime = new LuaRuntime();
   private readonly abortController = new AbortController();
   private readonly characterIds: readonly string[] | undefined;
@@ -52,6 +56,7 @@ export class TuiLuaApp {
     this.source = options.source ?? readFileSync(resolve(luaPath), "utf8");
     const sceneId = options.sceneId ?? basename(this.sourcePath).replace(/\.[^.]+$/, "");
     this.session = new TuiSession(sceneId);
+    this.state = options.state ?? createDefaultState(sceneId);
     this.renderer = new BlessedRenderer({
       input: options.input,
       output: options.output,
@@ -73,6 +78,7 @@ export class TuiLuaApp {
 
     try {
       return await this.runtime.run(this.source, (request) => this.waitForInput(request), {
+        state: this.state,
         sourceName: this.sourcePath,
         characterIds: this.characterIds,
         exits: this.exits,
@@ -154,6 +160,11 @@ export class TuiLuaApp {
   private render(): void {
     this.renderer.render(this.session);
   }
+}
+
+function createDefaultState(sceneId: string): GameState {
+  const variables: readonly VariableDefinition[] = [];
+  return new GameState({ packageId: "tui", schemaVersion: 1, sceneId, variables });
 }
 
 function isAbortError(error: unknown): boolean {
