@@ -1,8 +1,16 @@
 /** 角色领域模块的公共出口。 */
 export {
   Character,
+  CHARACTER_ID_PATTERN,
+  requireCharacterId,
+  type CharacterAssetRef,
   type CharacterDefinition,
   type CharacterId,
+  type CharacterPortraitDefinition,
+  type CharacterPortraitId,
+  type CharacterState,
 } from "./character";
-
-// 注册表暂时保持占位，等角色集合和工程包格式确定后再实现。
+export {
+  CharacterRegistry,
+  type CharacterStateSnapshot,
+} from "./character-registry";

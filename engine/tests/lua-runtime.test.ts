@@ -281,6 +281,16 @@ describe("LuaRuntime", () => {
         { state: createTestState(), exits: ["done"] },
       ),
     ).rejects.toThrow(/does not declare exit port/);
+
+    await expect(
+      runtime.run(
+        `return function(ctx)
+          return ctx.flow:exit("next")
+        end`,
+        () => undefined,
+        { state: createTestState(), exits: [] },
+      ),
+    ).rejects.toThrow(/does not declare exit port/);
   });
 
   it("allows a development API to self-register through one factory", async () => {

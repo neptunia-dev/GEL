@@ -16,7 +16,11 @@ export class FlowApi extends LuaApi {
 
   private exit(state: LuaState): number {
     const port = requireIdentifier(readRequiredString(state, 2, "port"), "port");
-    if (this.host.exits !== undefined && this.host.exits.size > 0 && !this.host.exits.has(port)) {
+
+    // undefined 表示旧的单文件调试调用没有提供场景元数据，因此保留不限制出口的
+    // 兼容语义；空 Set 则表示已验证场景明确没有命名出口，必须拒绝所有 exit。
+    // 正式的 SceneExecutor 会始终传入 scene.exits，使空出口场景只能 end_story。
+    if (this.host.exits !== undefined && !this.host.exits.has(port)) {
       throw new RangeError(`Scene does not declare exit port '${port}'`);
     }
     pushLuaValue(state, { type: "exit", port });

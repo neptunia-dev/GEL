@@ -165,7 +165,7 @@ return ctx.flow:end_story()
 
 `LuaRuntime.run` 的 `LuaRunOptions` 必需参数：
 
-- `state: GameState` - 游戏状态，持有 packageId、schemaVersion、sceneId 和变量定义
+- `state: GameState` - 游戏状态，持有 packageId、saveSchemaVersion、sceneId 和变量定义
 
 可选参数：
 
@@ -204,10 +204,14 @@ const result = await runtime.run(source, async (request) => {
 
 ```ts
 interface RuntimePackage {
+  formatVersion: number;      // manifest 格式版本
   packageId: string;          // 稳定包标识符
-  schemaVersion: number;      // 变量 schema 版本号
-  variables: VariableDefinition[]; // 变量声明数组
+  packageVersion: string;     // 游戏内容版本
+  saveSchemaVersion: number;  // 存档/运行时状态版本
   entryScene: string;         // 入口场景 ID
+  assets: AssetDefinition[];  // 资源声明
+  characters: CharacterDefinition[]; // 角色声明
+  variables: VariableDefinition[]; // 变量声明
   scenes: SceneDefinition[];  // 场景定义数组
   routes: Record<string, Record<string, string>>; // 场景路由表
 }
@@ -237,19 +241,19 @@ store.close(); // 关闭数据库连接
 - `saveAuto(state)` - 保存或替换自动存档槽位（id 为 `auto`），返回 `SaveSlot`
 - `createManual(state, label?)` - 创建新手动存档，返回包含 UUID 的 `SaveSlot`
 - `overwriteManual(id, state, label?)` - 覆盖现有手动存档，返回 `SaveSlot`
-- `load(id, state)` - 验证槽位的 packageId、schemaVersion、sceneId 与目标 state 匹配，通过后恢复变量快照到 state，返回 `SaveSlot`
+- `load(id, state)` - 验证槽位的 packageId、saveSchemaVersion、sceneId 与目标 state 匹配，通过后恢复变量快照到 state，返回 `SaveSlot`
 - `list()` - 返回所有槽位元数据（按 updatedAt 降序）
 - `delete(id)` - 删除指定槽位
 - `close()` - 关闭 SQLite 连接
 
 存档内容：
 
-- 元数据：packageId、schemaVersion、sceneId、label、createdAt、updatedAt
+- 元数据：packageId、saveSchemaVersion、sceneId、label、createdAt、updatedAt
 - 变量快照：所有声明变量的完整树形值（规范化存储在 save_value_nodes 表）
 
 加载行为：
 
-- `load(id, state)` 验证槽位的 packageId、schemaVersion、sceneId 必须与目标 state 当前值匹配
+- `load(id, state)` 验证槽位的 packageId、saveSchemaVersion、sceneId 必须与目标 state 当前值匹配
 - 验证通过后调用 `state.restore(snapshot)` 恢复所有变量值
 - **不修改** `state.sceneId`：调用方需在加载前将 state.sceneId 设置为槽位记录的场景 ID
 - **不恢复**：Lua 协程状态、局部变量、TUI 渲染帧、回滚历史
@@ -258,12 +262,12 @@ store.close(); // 关闭数据库连接
 
 - 存档前：确保 `state.sceneId` 已设置为当前场景 ID
 - 加载后：读取返回的 `SaveSlot.sceneId`，调度场景执行器从该场景重新开始
-- 场景调度由调用方实现（SceneRunner 仅为接口占位，未实现）
+- 场景调度由调用方实现（`SceneExecutor` 只定义单场景执行契约，尚未实现；路由与跨场景循环不属于 Lua runtime）
 
 存档校验：
 
 - packageId 必须匹配
-- schemaVersion 必须匹配
+- saveSchemaVersion 必须匹配
 - sceneId 必须匹配
 - 所有变量值必须通过 schema 校验
 - 损坏数据或版本不匹配直接拒绝，不提供迁移或宽松恢复
