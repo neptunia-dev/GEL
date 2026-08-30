@@ -1,0 +1,4 @@
+[submodule "editor"]
+	path = editor
+	url = https://github.com/neptunia-dev/GEL-Editor.git
+	branch = main
