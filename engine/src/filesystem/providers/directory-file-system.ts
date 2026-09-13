@@ -134,6 +134,7 @@ export class DirectoryFileSystem implements ReadonlyFileSystem {
   }
 
   private providerError(operation: string, path: VirtualPath, cause: unknown): FileSystemError {
+    if (cause instanceof FileSystemError) return cause;
     return new FileSystemError("INVALID_ROOT", `${operation}: '${path.value}'`, path.value, { cause });
   }
 }

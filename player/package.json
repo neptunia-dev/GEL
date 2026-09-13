@@ -1,0 +1,8 @@
+{
+  "name": "@gel/player-demo",
+  "private": true,
+  "scripts": {
+    "build": "../engine/node_modules/.bin/esbuild src/main.ts --bundle --platform=browser --alias:os=./src/browser-shim.ts --alias:fs=./src/browser-shim.ts --alias:child_process=./src/browser-shim.ts --alias:path=./src/browser-shim.ts --alias:crypto=./src/browser-shim.ts --alias:tmp=./src/browser-shim.ts --alias:readline-sync=./src/browser-shim.ts --banner:js=\"var global = globalThis; var process = { versions: {}, env: {} };\" --outfile=dist/main.js",
+    "serve": "python3 -m http.server 4173 --bind 127.0.0.1"
+  }
+}

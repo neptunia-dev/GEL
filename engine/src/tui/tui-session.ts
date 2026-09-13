@@ -119,6 +119,12 @@ export class TuiSession {
       }
     }
   }
+  /** Select a choice by its visible option index. */
+  public selectChoice(index: number): void {
+    if (this.choices === null || !Number.isSafeInteger(index) || index < 0 || index >= this.choices.options.length) return;
+    if (this.choices.options[index]?.enabled !== false) this.choices.selectedIndex = index;
+  }
+
 
   /** 返回当前选中的选项 ID。 */
   public getSelectedChoice(): string | null {
